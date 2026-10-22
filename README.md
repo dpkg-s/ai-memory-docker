@@ -2,8 +2,8 @@
 
 **`ai-memory` 记忆库的全部容器化定义**：MCP 服务端镜像 + Web 控制台镜像 + 一栈式编排。
 
-本仓只放容器相关的东西（`Dockerfile` / `Dockerfile.web` / `compose.yaml` / `.dockerignore`）。
-Python 业务代码不在这里，而在 submodule 里。
+容器相关的文件都在这里（`Dockerfile` / `Dockerfile.web` / `compose.yaml` / `.dockerignore`）。
+Python 业务代码在子模块 `template/` 里，克隆时加 `--recurse-submodules` 会一起拉下来。
 
 [![Release](https://img.shields.io/github/v/release/dpkg-s/ai-memory-docker?label=release&color=blue)](https://github.com/dpkg-s/ai-memory-docker/releases/latest)
 [![Docker](https://img.shields.io/badge/docker-compose%20up%20--build-2496ED)](https://docs.docker.com/compose/)
@@ -49,46 +49,28 @@ docker compose down        # 具名卷 vault / state / am-conf 保留
 
 ## 三个仓的关系
 
-本产品拆成三仓，各自独立发版。你当前在 **ai-memory-docker**。
+本产品拆成三仓，各自独立发布 —— **想要容器部署的话，停在这个仓就够了**。
 
-| 仓 | 职责 | 何时来这个仓 |
+| 仓 | 职责 | 适用场景 |
 | --- | --- | --- |
-| MCP 服务端 / 安装器 | [ai-memory-template](https://github.com/dpkg-s/ai-memory-template) | 装服务端、调 `memory.toml`、查工具签名 |
+| MCP 服务端 / 安装器 | [ai-memory-template](https://github.com/dpkg-s/ai-memory-template) | 不想用容器、想装到本机 |
 | Web 控制台 | [ai-memory-web](https://github.com/dpkg-s/ai-memory-web) | 想改界面或后端 |
 | **容器与编排**（本仓） | 两个镜像 + 一栈式 compose | 想部署、改端口、改卷、改镜像策略 |
 
-```
-ai-memory-docker              ← 本仓：两个镜像与编排
-  └── template/ (submodule)   →  dpkg-s/ai-memory-template    ← server.py 与各模块
-        └── web-console/ (submodule) → dpkg-s/ai-memory-web   ← Web 控制台
-```
-
-划分理由：
-
-| 仓 | 变更节奏 |
-| --- | --- |
-| `ai-memory-template` | 业务迭代，最频繁 |
-| `ai-memory-web` | 界面迭代 |
-| `ai-memory-docker` | 只随镜像策略变化 |
-
-**容器定义只在两个地方**：MCP 服务端的在本仓 `Dockerfile`，控制台的在本仓 `Dockerfile.web`
-—— 两个上游仓都不再持有 `Dockerfile` / `compose`，避免同一件事有两份说法。
+控制台的容器定义也在本仓（`Dockerfile.web`），所以改这个仓就能调两个服务的构建方式，
+不用去上游找 Dockerfile。
 
 ## 版本对照
 
-三仓版本号**不同轨**，靠下表对照，不靠数字大小推断兼容性。
+三仓版本号**不同轨**，各自按自己的节奏升，不要靠数字大小推断兼容性。
 
-| 组件 | 当前版本 | 本仓如何引用 |
+| 组件 | 当前版本 | 对应的镜像 |
 | --- | --- | --- |
-| ai-memory-template | **3.1.2** | `template` 子模块指针 + `ai-memory:3.1.2` 镜像 tag |
-| ai-memory-web | **1.11.3** | `template/web-console` 二级指针 + `ai-memory-web:1.11.3` 镜像 tag |
-| ai-memory-docker | **1.1.1** | 本仓 tag，与 `compose.yaml` 的 `image:` tag 保持一致 |
+| ai-memory-template | [![v](https://img.shields.io/github/v/release/dpkg-s/ai-memory-template?label=&color=blue)](https://github.com/dpkg-s/ai-memory-template/releases/latest) | `ai-memory:<该版本>` |
+| ai-memory-web | [![v](https://img.shields.io/github/v/release/dpkg-s/ai-memory-web?label=&color=blue)](https://github.com/dpkg-s/ai-memory-web/releases/latest) | `ai-memory-web:<该版本>` |
+| ai-memory-docker | [![v](https://img.shields.io/github/v/release/dpkg-s/ai-memory-docker?label=&color=blue)](https://github.com/dpkg-s/ai-memory-docker/releases/latest) | 与 `compose.yaml` 里两个 `image:` 标注一致 |
 
-版本号规则：只叠加 —— 修 Dockerfile / compose / 文档记 `+0.0.1`，新增编排能力（新镜像、
-新部署形态）记 `+0.1`。major 位不动。
-
-发版顺序是硬约束：**template 先 → web 后 → 本仓跟随**，因为 web 的 Release 要从 template
-latest 转挂同一个安装器 exe，且本仓的镜像 tag 要跟随两者。
+两个镜像的 tag 各自跟随上游版本，互不绑定 —— 可以只升级 MCP 服务端而让控制台留在旧版。
 
 ## 两个镜像
 
@@ -96,8 +78,6 @@ latest 转挂同一个安装器 exe，且本仓的镜像 tag 要跟随两者。
 | --- | --- | --- | --- |
 | `ai-memory:<template 版本>` | `Dockerfile` | 8700（`/mcp`） | 只要 `template/*.py`，**不需要** web-console |
 | `ai-memory-web:<web 版本>` | `Dockerfile.web` | 8811 | 只要 `template/web-console/` |
-
-两者 TAG 各自跟随上游版本，互不绑定。
 
 ### 首次登录的初始账号
 
@@ -131,8 +111,8 @@ latest 转挂同一个安装器 exe，且本仓的镜像 tag 要跟随两者。
 - 端口只绑 `127.0.0.1:8700`，局域网看不到 —— 这是既定红线，不是配置疏漏。要从别的主机访问，
   必须显式改 `AI_MEMORY_HTTP_ALLOWED_HOSTS` 并把 ports 改成对外地址；白名单缺失时进程会
   fail-fast 拒绝启动，属有意摩擦。
-- 依赖清单取 submodule 里那份 `requirements.txt`（`mcp<2` 是硬约束：2.x 把 FastMCP 更名为
-  MCPServer，装到 2.x 会 import 失败），不在本仓复制第二份。
+- 依赖清单来自子模块里的 `requirements.txt`（`mcp<2` 是硬约束：2.x 把 FastMCP 更名为
+  MCPServer，装到 2.x 会 import 失败）。
 
 ### Web 控制台
 
@@ -162,31 +142,33 @@ AI_MEMORY_HTTP_ALLOWED_HOSTS="127.0.0.1:*,localhost:*,host.docker.internal:8700"
 `--network host` 不是解药：在 Docker Desktop for Windows/macOS 下它走的是**虚拟机**的网络命名
 空间，既到不了宿主机 `127.0.0.1`，外部也访问不到容器端口（实测拒连）。
 
-**用本仓的 compose 就不会撞这个问题** —— 两个服务都在同一网络里，走服务名。
+**用这里的 compose 就不会撞这个问题** —— 两个服务都在同一网络里，走服务名。
 
 ## 升级
 
-镜像里没有业务逻辑，所以升级的实质是**移动 submodule 指针**：
+数据都在具名卷里，升镜像不影响它 —— 但别用 `docker compose down -v`，那会把卷一起删掉。
 
 ```bash
-cd template && git fetch --tags && git checkout v3.1.3 && cd ..
-git add template
-# 同步 compose.yaml 里的 image tag
-git commit -m "chore: template 指向 v3.1.3"
+cd ai-memory-docker
+git pull                                 # compose.yaml 里的 image tag 已更新
+git submodule update --init --recursive  # 同步被构建的源码
 docker compose up -d --build
 ```
 
-控制台单独升级（web 仓自身也是 template 的子模块，改的是**二级指针**）：
+**改过 `compose.yaml`**（端口、卷路径、环境变量）的话 `git pull` 会冲突，那就只手动改
+`image:` 两行，版本号从本仓 [Releases](https://github.com/dpkg-s/ai-memory-docker/releases) 页查：
 
-```bash
-cd template/web-console && git fetch --tags && git checkout v1.11.4 && cd ../..
-git add template
-git commit -m "chore: web-console 指向 v1.11.4"
-docker compose up -d --build ai-memory-web
+```yaml
+services:
+  ai-memory:
+    image: ai-memory:3.1.3
+  ai-memory-web:
+    image: ai-memory-web:1.11.4
 ```
 
-> `git add -A` 会用子模块**当前 HEAD 覆盖**手工登记的 gitlink。上提指针后先 `git add template`，
-> 再提交普通文件。
+两个镜像 tag 互不绑定，可以只升其中一个 —— 把最后一条命令换成
+`docker compose up -d --build ai-memory` 即可。**回滚**就是把 tag 改回旧版本再 `up -d --build`，
+数据卷不受影响。
 
 ## 许可
 
