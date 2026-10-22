@@ -42,7 +42,21 @@ docker compose up -d --build
 ```
 
 - MCP 端点：`http://127.0.0.1:8700/mcp`（Streamable HTTP）
-- 控制台：`http://127.0.0.1:8811`，默认 `admin` / `password`（**首次登录后请改**）
+- 控制台：`http://127.0.0.1:8811`
+
+### 首次登录的初始账号
+
+| 用户名 | 口令 |
+| --- | --- |
+| `admin` | `password` |
+
+打开 <http://127.0.0.1:8811> 直接用它进，进去**第一件事是改口令**（「访问控制」页）。
+
+> 🔴 **这是「首次启动的种子」，不是常驻配置。**
+> 控制台只在 `/config/users.json` 为空时用它建初始管理员，落盘的是 scrypt 哈希，
+> 磁盘上没有明文。一旦改过口令，`AI_MEMORY_WEB_USER/PASSWORD` 环境变量就再也不起作用
+> —— 刻意的，否则每次重启都会把口令打回默认值。改不了就删掉 `am-conf` 卷重来。
+> 口令以 ENV 形式进镜像层，`docker inspect` 能看到明文，别当保险箱。
 
 **`--recurse-submodules` 不能省**：控制台代码在二级 submodule `template/web-console/` 里，
 只拉一级的话 `Dockerfile.web` 会在 `COPY` 处报 not found。已有克隆补一次：
@@ -88,8 +102,7 @@ docker compose down        # 具名卷 vault / state / am-conf 保留
 ### Web 控制台
 
 - `/config` 是唯一需要写权限的目录（`config.json` / `users.json` / `tokens.json`），声明为卷。
-- 默认账号 `admin` / `password` **只是首次启动的种子**：`users.json` 为空时才建初始管理员，
-  存 scrypt 哈希、磁盘上没有明文。改过口令后环境变量即失效 —— 刻意的，否则每次重启会打回默认值。
+- 初始账号 `admin` / `password` 及其「只是种子」的语义，见上面 [首次登录的初始账号](#首次登录的初始账号)。
 - 探活打 `/api/session`，**不是** `/api/health`：开启登录后后者要 401，容器会被反复判死。
 - **容器间用服务名互访**：compose 里控制台的 `AI_MEMORY_WEB_MCP` 指向
   `http://ai-memory:8700/mcp`，走内部网络，不绕宿主机回环 —— 也因此不需要
