@@ -17,7 +17,7 @@ services:
   # ---------------------------------------------------------------------------
   ai-memory:
     # tag 与本仓版本对齐；升级 = 移 submodule 指针 + 改这里 + 重新 build
-    image: ai-memory:3.1.1
+    image: ai-memory:3.1.2
     build:
       context: .
     container_name: ai-memory
@@ -51,7 +51,7 @@ services:
   # Web 控制台（前端 + 反向代理 + 访问控制）
   # ---------------------------------------------------------------------------
   ai-memory-web:
-    image: ai-memory-web:1.11.2
+    image: ai-memory-web:1.11.3
     build:
       # 上下文仍是本仓根：控制台代码在 template/web-console/（二级 submodule）
       context: .
