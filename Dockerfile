@@ -13,10 +13,10 @@
 # 因此升级只需换镜像 tag，数据不动。
 #
 # 构建：
-#     docker build -t ai-memory:3.1.0 .
+#     docker build -t ai-memory:3.1.1 .
 # 运行（只绑回环，宿主机局域网看不到该端口）：
 #     docker run -d --name ai-memory -p 127.0.0.1:8700:8700 \
-#         -v ai-memory-vault:/vault -v ai-memory-state:/state ai-memory:3.1.0
+#         -v ai-memory-vault:/vault -v ai-memory-state:/state ai-memory:3.1.1
 # 或直接用 compose.yaml。
 
 FROM python:3.13-slim

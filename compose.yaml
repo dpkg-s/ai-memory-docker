@@ -1,19 +1,28 @@
-# ai-memory（v3 · Streamable HTTP）本机测试用的 compose 定义
+# ai-memory 一栈式 compose：MCP 服务端 + Web 控制台
 #
-# 前置：submodule 必须已检出 —— 首次克隆后跑 `git submodule update --init`
-#       （没检出时 build 会在 COPY template/requirements.txt 处报 not found）
+# 前置：submodule 必须**递归**检出（控制台代码在二级 submodule 里）
+#       git clone --recurse-submodules ...
+#       # 或已有克隆：
+#       git submodule update --init --recursive
+#       没检出时 web 服务会在 COPY 处报 not found。
+#
 # 起：docker compose up -d --build
-# 连：http://127.0.0.1:8700/mcp
+#   MCP   http://127.0.0.1:8700/mcp
+#   控制台 http://127.0.0.1:8811  （admin / password，首次登录后请改）
 # 停：docker compose down            （卷保留，数据不丢）
 
 services:
+  # ---------------------------------------------------------------------------
+  # MCP 服务端（Streamable HTTP）
+  # ---------------------------------------------------------------------------
   ai-memory:
     # tag 与本仓版本对齐；升级 = 移 submodule 指针 + 改这里 + 重新 build
-    image: ai-memory:3.1.0
+    image: ai-memory:3.1.1
     build:
       context: .
     container_name: ai-memory
-    # hostname 会进入容器的 Host 白名单（见镜像内 AI_MEMORY_HTTP_ALLOWED_HOSTS）
+    # hostname 会进入容器的 Host 白名单（见下 AI_MEMORY_HTTP_ALLOWED_HOSTS）；
+    # 控制台用服务名 ai-memory 访问，靠的也是这条。
     hostname: ai-memory
     restart: unless-stopped
 
@@ -27,7 +36,8 @@ services:
       # 容器一重建就没了 —— 索引能重建，指标趋势不能。
       AI_MEMORY_STATE_DIR: /state
       # 要从别的主机名/地址访问时必须显式追加，否则 Host 校验会拦截（有意的摩擦）。
-      # 例：AI_MEMORY_HTTP_ALLOWED_HOSTS="localhost:*,127.0.0.1:*,ai-memory:*,192.168.1.20:8700"
+      # ⚠️ 这是**替换**语义，不是追加 —— 回环两项必须一起写。
+      # ai-memory:* 是容器间互访用的（控制台走 http://ai-memory:8700/mcp）。
       AI_MEMORY_HTTP_ALLOWED_HOSTS: "localhost:*,127.0.0.1:*,ai-memory:*"
 
     volumes:
@@ -37,6 +47,44 @@ services:
       - vault:/vault
       - state:/state
 
+  # ---------------------------------------------------------------------------
+  # Web 控制台（前端 + 反向代理 + 访问控制）
+  # ---------------------------------------------------------------------------
+  ai-memory-web:
+    image: ai-memory-web:1.11.2
+    build:
+      # 上下文仍是本仓根：控制台代码在 template/web-console/（二级 submodule）
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: ai-memory-web
+    restart: unless-stopped
+    depends_on:
+      - ai-memory
+
+    ports:
+      # 控制台是给人用的，需要从浏览器访问。若要限制到本机，改成
+      # "127.0.0.1:8811:8811"；对外暴露务必先改掉默认口令。
+      - "8811:8811"
+
+    environment:
+      # 容器内用**服务名**访问 MCP：走 compose 内部网络，不绕宿主机回环，
+      # 因此不需要 host.docker.internal，也不需要动 MCP 的 Host 白名单
+      # （ai-memory:* 已在上面那条 ALLOWED_HOSTS 里）。
+      AI_MEMORY_WEB_MCP: http://ai-memory:8700/mcp
+      # 默认账号 = 首次启动的种子（/config/users.json 为空时才建）。
+      # 改过口令后环境变量即失效 —— 刻意的，否则每次重启会打回默认值。
+      AI_MEMORY_WEB_USER: admin
+      AI_MEMORY_WEB_PASSWORD: password
+      # 会话寿命（秒），默认 12 小时
+      # AI_MEMORY_WEB_SESSION_TTL: "604800"
+
+    volumes:
+      # config.json / users.json / tokens.json 都落在这里，别丢
+      - am-conf:/config
+      # 要读 vault（索引、笔记预览、阈值写入）时再打开，默认只读挂载
+      # - vault:/vault:ro
+
 volumes:
   vault:
   state:
+  am-conf:

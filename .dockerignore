@@ -1,6 +1,8 @@
 # 构建上下文 = 本仓根（见 compose.yaml 的 build.context: .）。
 #
-# 镜像真正需要的只有两样：template/requirements.txt 与 template/*.py。
+# 两个镜像需要的东西不同：
+#   MCP 服务端（Dockerfile）      → template/requirements.txt + template/*.py
+#   Web 控制台（Dockerfile.web）  → template/web-console/ 整棵子树
 # 其余一律挡掉，让上下文体积与变化面都可预期 —— 上下文里每多一个会变动的文件，
 # 镜像层缓存就越容易失效。
 
@@ -12,11 +14,25 @@
 README.md
 compose.yaml
 
-# submodule 里只放行两个直接子项，其余（含 .git / web-console / tests / dist /
-# 各类文档与派生物）全部不进上下文。
+# --- template/：只放行两个镜像各自要用的东西 -------------------------------
 #
 # ⚠️ 这里的 `template/*` 必须写**目录内的通配**而不是 `template/`：父目录整体被
 #    排除后，后面的 `!template/*.py` 例外规则不再生效，COPY 会报找不到文件。
 template/*
 !template/*.py
 !template/requirements.txt
+# 控制台整棵子树（二级 submodule）。目录本身必须先被放行，其内容才会被遍历到。
+!template/web-console/
+
+# --- Web 控制台里不进镜像的部分 -------------------------------------------
+# Dockerfile 是 `COPY template/web-console/ ./` 整目录复制，所以这里逐项剔掉：
+#   测试、发布件、CI、缓存、以及 submodule 的 gitlink 文件（.git 在 submodule 里是个文件）。
+template/web-console/.git
+template/web-console/.github
+template/web-console/tests
+template/web-console/__pycache__
+template/web-console/**/__pycache__
+template/web-console/*.tgz
+template/web-console/.dockerignore
+template/web-console/Dockerfile
+template/web-console/docker-compose.yml
