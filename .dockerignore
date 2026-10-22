@@ -1,0 +1,22 @@
+# 构建上下文 = 本仓根（见 compose.yaml 的 build.context: .）。
+#
+# 镜像真正需要的只有两样：template/requirements.txt 与 template/*.py。
+# 其余一律挡掉，让上下文体积与变化面都可预期 —— 上下文里每多一个会变动的文件，
+# 镜像层缓存就越容易失效。
+
+# 版本控制与 CI
+.git
+.gitmodules
+.github/
+.dockerignore
+README.md
+compose.yaml
+
+# submodule 里只放行两个直接子项，其余（含 .git / web-console / tests / dist /
+# 各类文档与派生物）全部不进上下文。
+#
+# ⚠️ 这里的 `template/*` 必须写**目录内的通配**而不是 `template/`：父目录整体被
+#    排除后，后面的 `!template/*.py` 例外规则不再生效，COPY 会报找不到文件。
+template/*
+!template/*.py
+!template/requirements.txt

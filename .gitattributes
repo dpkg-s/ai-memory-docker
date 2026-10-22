@@ -1,0 +1,7 @@
+# 容器资产必须锁死 LF —— 带 CRLF 的 Dockerfile 会让 `docker build` 解析失败
+# （指令行尾多出一个 CR，报「unknown instruction」）。
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf

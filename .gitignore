@@ -1,0 +1,20 @@
+# 本地构建与运行产物（镜像本体在 Docker 守护进程里，不在工作区）
+
+# 导出的镜像归档
+*.tar
+*.tar.gz
+
+# 构建日志与临时脚本
+build.log
+_tmp_*
+_probe_*
+
+# 编辑器/系统杂项
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+
+# 本地覆盖（compose 的 override 常用于个人端口/路径调整，不入库）
+compose.override.yaml
+compose.override.yml

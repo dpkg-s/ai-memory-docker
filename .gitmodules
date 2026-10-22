@@ -1,0 +1,4 @@
+[submodule "template"]
+	path = template
+	url = https://github.com/dpkg-s/ai-memory-template.git
+	branch = master
