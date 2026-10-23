@@ -18,6 +18,21 @@
 `compose.yaml` 里的 `image:` tag 与本仓 tag 对齐，便于反查「这个镜像跑的是哪份定义」。
 镜像自身的版本跟随上游：`ai-memory:<template 版本>`、`ai-memory-web:<web 版本>`。
 
+## [1.1.2] - 2026-10-23
+
+> 主题：**部署默认值先关门**。Compose 现在默认仅本机可访问控制台，首次启动必须由部署者提供口令配置。
+
+### Security
+
+- 移除 `admin / password` 默认凭据。推荐通过 `AI_MEMORY_WEB_PASSWORD_HASH` 提供 scrypt 哈希；明文口令仅作为显式兼容选项。
+- 控制台宿主端口默认绑定 `127.0.0.1`。局域网访问需显式设置 `AI_MEMORY_WEB_BIND` 并配置防火墙；远程访问应使用 VPN 或 TLS 入口。
+- 将 `.env` 与本地环境文件加入忽略规则，避免部署凭据误提交。
+
+### Upgrade
+
+- 已初始化的 `am-conf` 卷会保留原有用户和口令。升级前仍需在 `.env` 配置账号及口令哈希（或显式明文口令）；若原先通过 LAN 访问，还需设置 `AI_MEMORY_WEB_BIND=0.0.0.0` 并确认防火墙规则。
+- 不需重建 `vault`、`state` 或 `am-conf` 卷。MCP 与 Web 镜像版本不变，本版只调整部署默认值和说明。
+
 ## [1.1.1] - 2026-10-22
 
 > 主题：**初始账号摆在门口**。1.1.0 的 README 把 `admin` / `password` 埋在「快速开始」的一条要点里，实际看仓的人会直接滚到 `docker compose up` 就动手 —— 然后卡在登录页翻文档。

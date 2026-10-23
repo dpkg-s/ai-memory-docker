@@ -11,18 +11,25 @@ Python 业务代码在子模块 `template/` 里，克隆时加 `--recurse-submod
 
 ---
 
-## 一条命令起全套
+## 快速开始
 
 ```bash
 git clone --recurse-submodules https://github.com/dpkg-s/ai-memory-docker.git
 cd ai-memory-docker
+cp .env.example .env
+python template/web-console/make_password.py
+# 把脚本输出的 AI_MEMORY_WEB_USER 和 AI_MEMORY_WEB_PASSWORD_HASH 填进 .env
 docker compose up -d --build
 ```
 
 | 服务 | 地址 | 说明 |
 | --- | --- | --- |
 | MCP 服务端 | <http://127.0.0.1:8700/mcp> | Streamable HTTP，25 个工具 |
-| Web 控制台 | <http://127.0.0.1:8811> | 首次登录 `admin` / `password`，进去第一件事改口令 |
+| Web 控制台 | <http://127.0.0.1:8811> | 首次启动前须在 `.env` 设置登录用户与口令哈希；默认只绑定本机 |
+
+默认口令已移除。控制台宿主端口默认绑定 `127.0.0.1`；需要从局域网其他设备访问时，
+在 `.env` 里把 `AI_MEMORY_WEB_BIND` 明确设为 `0.0.0.0`，并用宿主机防火墙限制来源。
+跨网络访问应使用 VPN 或带 TLS 的入口。不要把 `.env` 提交到仓库。
 
 **`--recurse-submodules` 不能省**：控制台代码在二级 submodule `template/web-console/` 里，
 只拉一级的话 `Dockerfile.web` 会在 `COPY` 处报 not found。已有克隆补一次：
@@ -44,8 +51,7 @@ docker compose up -d --build ai-memory-web    # 只起控制台（需 MCP 已在
 docker compose down        # 具名卷 vault / state / am-conf 保留
 ```
 
-> 首次登录账号的「种子而非配置」语义、`docker inspect` 能看到明文口令的警告，
-> 见下文 [首次登录的初始账号](#首次登录的初始账号)。
+> 管理员的初始化语义与凭据保护说明见下文 [首次登录的管理员账号](#首次登录的管理员账号)。
 
 ## 三个仓的关系
 
@@ -79,19 +85,16 @@ docker compose down        # 具名卷 vault / state / am-conf 保留
 | `ai-memory:<template 版本>` | `Dockerfile` | 8700（`/mcp`） | 只要 `template/*.py`，**不需要** web-console |
 | `ai-memory-web:<web 版本>` | `Dockerfile.web` | 8811 | 只要 `template/web-console/` |
 
-### 首次登录的初始账号
+### 首次登录的管理员账号
 
-| 用户名 | 口令 |
-| --- | --- |
-| `admin` | `password` |
+没有默认账号口令。启动前在 `.env` 设置 `AI_MEMORY_WEB_USER` 和
+`AI_MEMORY_WEB_PASSWORD_HASH`；推荐用 `python template/web-console/make_password.py`
+交互生成哈希。也可以使用 `AI_MEMORY_WEB_PASSWORD` 明文变量，但它会出现在容器环境中，
+例如 `docker inspect`，安全性较低。
 
-打开 <http://127.0.0.1:8811> 直接用它进，进去**第一件事是改口令**（「访问控制」页）。
-
-> 🔴 **这是「首次启动的种子」，不是常驻配置。**
-> 控制台只在 `/config/users.json` 为空时用它建初始管理员，落盘的是 scrypt 哈希，
-> 磁盘上没有明文。一旦改过口令，`AI_MEMORY_WEB_USER/PASSWORD` 环境变量就再也不起作用
-> —— 刻意的，否则每次重启都会把口令打回默认值。改不了就删掉 `am-conf` 卷重来。
-> 口令以 ENV 形式进镜像层，`docker inspect` 能看到明文，别当保险箱。
+这组环境变量在 `/config/users.json` 为空时建立初始管理员；已有用户表会保留原有账号和
+口令，不会被环境变量重置。容器内 Web 服务监听非回环地址，因此每次启动仍须提供一组
+登录配置。`.env` 已加入 `.gitignore`，但仍应妥善保护部署目录和备份。
 
 ## 镜像的行为约定
 
@@ -117,7 +120,8 @@ docker compose down        # 具名卷 vault / state / am-conf 保留
 ### Web 控制台
 
 - `/config` 是唯一需要写权限的目录（`config.json` / `users.json` / `tokens.json`），声明为卷。
-- 初始账号的「只是种子」语义见上一节。
+- **无默认口令**：部署必须显式提供账号与口令哈希或口令；用户表已有账号时不会被覆盖。
+- **Web 控制台默认宿主端口只绑 `127.0.0.1`**；局域网访问需显式设置 `AI_MEMORY_WEB_BIND` 并配置防火墙。
 - 探活打 `/api/session`，**不是** `/api/health`：开启登录后后者要 401，容器会被反复判死。
 - **容器间用服务名互访**：compose 里控制台的 `AI_MEMORY_WEB_MCP` 指向
   `http://ai-memory:8700/mcp`，走内部网络，不绕宿主机回环 —— 也因此不需要

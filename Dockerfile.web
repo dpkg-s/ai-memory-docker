@@ -28,11 +28,10 @@
 #    ⚠️ 不要指望 --network host：Docker Desktop for Windows/macOS 下它是 VM 的
 #    网络命名空间，既连不到宿主机回环，外部也访问不到容器端口（实测拒连）。
 #
-# 🔴 默认账号 admin / password 是**首次启动的种子**：
-#    web_console 只在 /config/users.json 为空时用它建初始管理员（存 scrypt 哈希，
-#    磁盘上没有明文）。一旦在「访问控制」页改过口令，环境变量就不再起作用 ——
-#    这是刻意的，否则每次重启都会把口令打回默认值。
-#    对外暴露前请务必改掉；改不了就删掉 /config 卷重来。
+# 🔴 镜像不内置默认账号或口令。通过部署环境提供 AI_MEMORY_WEB_USER 与
+#    AI_MEMORY_WEB_PASSWORD_HASH（推荐）或 AI_MEMORY_WEB_PASSWORD；无登录配置时，
+#    非回环监听会拒绝启动。口令仅在 /config/users.json 为空时用于建立管理员。
+#    对外暴露时仍应限制来源，并使用 VPN 或 TLS 入口。
 #
 # 🔴 多架构：本文件用 pip 装依赖，构建时需要网络。设备离线构建请用
 #    设备侧的 Dockerfile.offline（基座镜像里已装好 mcp），二者 ENV 保持一致。
@@ -51,9 +50,7 @@ ENV PYTHONUNBUFFERED=1 \
     AI_MEMORY_WEB_CONFIG=/config/config.json \
     AI_MEMORY_WEB_USERS=/config/users.json \
     AI_MEMORY_WEB_TOKENS=/config/tokens.json \
-    AI_MEMORY_DIR=/vault \
-    AI_MEMORY_WEB_USER=admin \
-    AI_MEMORY_WEB_PASSWORD=password
+    AI_MEMORY_DIR=/vault
 
 WORKDIR /app
 
