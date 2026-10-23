@@ -155,16 +155,9 @@ git submodule update --init --recursive  # 同步被构建的源码
 docker compose up -d --build
 ```
 
-**改过 `compose.yaml`**（端口、卷路径、环境变量）的话 `git pull` 会冲突，那就只手动改
-`image:` 两行，版本号从本仓 [Releases](https://github.com/dpkg-s/ai-memory-docker/releases) 页查：
-
-```yaml
-services:
-  ai-memory:
-    image: ai-memory:3.1.3
-  ai-memory-web:
-    image: ai-memory-web:1.11.4
-```
+**改过 `compose.yaml`**（端口、卷路径、环境变量）的话 `git pull` 可能产生冲突。保留自己的
+配置，并按本仓 [Releases](https://github.com/dpkg-s/ai-memory-docker/releases) 中对应版本，
+更新 `compose.yaml` 的两个 `image:` tag。
 
 两个镜像 tag 互不绑定，可以只升其中一个 —— 把最后一条命令换成
 `docker compose up -d --build ai-memory` 即可。**回滚**就是把 tag 改回旧版本再 `up -d --build`，
