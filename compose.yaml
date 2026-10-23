@@ -6,9 +6,10 @@
 #       git submodule update --init --recursive
 #       没检出时 web 服务会在 COPY 处报 not found。
 #
+# 首次启动前：复制 .env.example 为 .env，生成并填入口令哈希；详见 README。
 # 起：docker compose up -d --build
 #   MCP   http://127.0.0.1:8700/mcp
-#   控制台 http://127.0.0.1:8811  （admin / password，首次登录后请改）
+#   控制台 http://127.0.0.1:8811  （默认只绑定本机）
 # 停：docker compose down            （卷保留，数据不丢）
 
 services:
@@ -62,19 +63,21 @@ services:
       - ai-memory
 
     ports:
-      # 控制台是给人用的，需要从浏览器访问。若要限制到本机，改成
-      # "127.0.0.1:8811:8811"；对外暴露务必先改掉默认口令。
-      - "8811:8811"
+      # 默认只允许宿主机本地访问；要给局域网使用，显式设置 AI_MEMORY_WEB_BIND，
+      # 并在宿主机防火墙限制来源。远程访问应经 VPN 或 TLS 入口。
+      - "${AI_MEMORY_WEB_BIND:-127.0.0.1}:8811:8811"
 
     environment:
       # 容器内用**服务名**访问 MCP：走 compose 内部网络，不绕宿主机回环，
       # 因此不需要 host.docker.internal，也不需要动 MCP 的 Host 白名单
       # （ai-memory:* 已在上面那条 ALLOWED_HOSTS 里）。
       AI_MEMORY_WEB_MCP: http://ai-memory:8700/mcp
-      # 默认账号 = 首次启动的种子（/config/users.json 为空时才建）。
-      # 改过口令后环境变量即失效 —— 刻意的，否则每次重启会打回默认值。
-      AI_MEMORY_WEB_USER: admin
-      AI_MEMORY_WEB_PASSWORD: password
+      # 必须显式配置账号与口令（优先用哈希）。无默认口令；缺少登录配置时，
+      # Web 服务会拒绝在容器的非回环地址上启动。首次启动仅在 users.json 为空时
+      # 用这组值创建管理员；已有用户表不会被环境变量覆盖。
+      AI_MEMORY_WEB_USER: "${AI_MEMORY_WEB_USER:-admin}"
+      AI_MEMORY_WEB_PASSWORD: "${AI_MEMORY_WEB_PASSWORD:-}"
+      AI_MEMORY_WEB_PASSWORD_HASH: "${AI_MEMORY_WEB_PASSWORD_HASH:-}"
       # 会话寿命（秒），默认 12 小时
       # AI_MEMORY_WEB_SESSION_TTL: "604800"
 

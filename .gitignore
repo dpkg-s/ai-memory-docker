@@ -18,3 +18,8 @@ desktop.ini
 # 本地覆盖（compose 的 override 常用于个人端口/路径调整，不入库）
 compose.override.yaml
 compose.override.yml
+
+# 部署凭据与本地环境（保留可分享的模板）
+.env
+.env.*
+!.env.example

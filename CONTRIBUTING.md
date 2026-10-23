@@ -77,6 +77,8 @@ gh release create v1.1.2 --title "v1.1.2 — <一句话>" --notes-file notes.md
 
 - [ ] `git submodule status` 两级别都是干净状态（无 `-dirty`）
 - [ ] `compose.yaml` 的两个 `image:` tag 与新版本一致
+- [ ] Compose 未内置默认账号口令；部署凭据通过被忽略的 `.env` 提供
+- [ ] Web 控制台端口默认只绑定回环地址；LAN/TLS/VPN 使用方式有明确说明
 - [ ] `CHANGELOG.md` 顶部加条目
 - [ ] `docker compose config` 通过（语法错误的 compose 会让用户第一步就失败）
 - [ ] `docker compose build` 成功，两个镜像都能构建
