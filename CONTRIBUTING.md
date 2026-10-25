@@ -25,6 +25,31 @@ ai-memory-docker              ← 本仓：两个镜像与编排
 本仓的镜像 tag 要跟随两者，且 web 仓的 Release 还要从 template `latest` 转挂安装器 exe。
 本仓先发会造成「compose 指向一个上游还不存在的 tag」。
 
+## 改动记录只写本仓
+
+**谁改了东西，就写在谁自己的那个仓里。** 本仓只记录容器端（镜像与编排）的改动，另两端去看它们自己的记录。
+
+| 端 | 仓库 | 谁能写进本仓的文档 |
+| --- | --- | --- |
+| 核心 | [ai-memory-template](https://github.com/dpkg-s/ai-memory-template) · [CONTRIBUTING](https://github.com/dpkg-s/ai-memory-template/blob/master/CONTRIBUTING.md) | MCP 服务端、索引/检索、测试、安装器 exe —— 归它自己写 |
+| 外部端 | [ai-memory-web](https://github.com/dpkg-s/ai-memory-web) · [CONTRIBUTING](https://github.com/dpkg-s/ai-memory-web/blob/master/CONTRIBUTING.md) | 控制台页面 / CSS / 前端交互 —— 归它自己写 |
+| **容器端（本仓）** | [ai-memory-docker](https://github.com/dpkg-s/ai-memory-docker) | `Dockerfile`、`Dockerfile.web`、`compose.yaml`、镜像 tag、两级 submodule 指针 —— 只有这些 |
+
+执行细则：
+
+1. `commit message`、`CHANGELOG.md`、`README.md`、PR 正文、Release 正文，**只描述本仓的改动**。
+2. **不写**另两端的改动清单、对方的 commit SHA、对方的运行/验证过程、对方的发版动作。
+   那些属于对方仓自己那份记录 —— 写在这里就是混写。
+3. 本仓天然要涉及上游版本，写法是**指针 + 超链接**，例如：
+   「`template/` → [v3.1.3](https://github.com/dpkg-s/ai-memory-template/releases/tag/v3.1.3)」，
+   到此为止；上游这一版改了什么，去核心仓的
+   [CHANGELOG](https://github.com/dpkg-s/ai-memory-template/blob/master/CHANGELOG.md) 看，不抄过来。
+4. 一次改动横跨多端 ⇒ 三仓各一笔提交、各写一句，本仓只留本仓那一笔。
+5. 指针上提是本仓的活、也归本仓记录（因为它登记在本仓的 gitlink 里），但**只记录指针走到了哪个 tag**，
+   不记录上游内部实现。
+
+提交前自查：`git diff --cached` 里出现的仓库名，只能是本仓（超链接除外）。
+
 ## 版本号规则
 
 major 位固定不动，**只叠加**：
