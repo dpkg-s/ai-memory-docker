@@ -47,6 +47,27 @@ docker compose down        # 具名卷 vault / state / am-conf 保留
 > 首次登录账号的「种子而非配置」语义、`docker inspect` 能看到明文口令的警告，
 > 见下文 [首次登录的初始账号](#首次登录的初始账号)。
 
+### 没有构建环境：用离线镜像包
+
+目标机器不通外网、或者一次完整构建太慢时，不必 `git clone` —— Release 附件里有构建好的镜像：
+
+```bash
+# 从本仓 Release 下载三个文件：ai-memory-<core版本>.tar、ai-memory-web-<web版本>.tar、compose.yaml
+sha256sum -c ai-memory-<core版本>.tar.sha256
+sha256sum -c ai-memory-web-<web版本>.tar.sha256
+
+docker load -i ai-memory-<core版本>.tar
+docker load -i ai-memory-web-<web版本>.tar
+
+docker compose up -d --no-build
+```
+
+`tar` 里的镜像 tag 与 `compose.yaml` 的 `image:` 一致，导入后可直接起栈。**`--no-build` 不能省** ——
+不加它会去找源码重新构建，而离线包所在目录里并没有源码。
+
+两个版本号不同轨（`ai-memory` 跟核心仓、`ai-memory-web` 跟控制台仓），所以两个文件名里的数字
+通常不一样，见 [版本对照](#版本对照)。
+
 ## 三个仓的关系
 
 本产品拆成三仓，各自独立发布 —— **想要容器部署的话，停在这个仓就够了**。
