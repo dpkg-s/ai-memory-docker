@@ -87,8 +87,30 @@ jobs:
             NOTES=/tmp/notes.md
           fi
 
-          TITLE="$(head -n 1 "$NOTES" | sed -E 's/^#+[[:space:]]*//')"
+          # 标题：三仓统一取**带注释 tag 的 subject**（`git tag -a v1.1.2 -m "v1.1.2 — 一句话"`）。
+          # 走 API 而不是本地 `git tag -l --format='%(contents:subject)'`：runner 上本地 tag
+          # 未必是带注释形态，该占位符会静默退回被指向提交的主题（核心仓 v3.0.0 曾因此把
+          # Release 标题写成 commit subject）。任何一步失败都回落为 tag 名。
+          TITLE=""
+          OBJ="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" \
+                   --jq '.object.type + " " + .object.sha' 2>/dev/null || true)"
+          KIND="${OBJ%% *}"; SHA="${OBJ##* }"
+          if [ "$KIND" = "tag" ]; then
+            SUBJ="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$SHA" \
+                     --jq '.message' 2>/dev/null | head -n1 || true)"
+            if [ -n "$SUBJ" ]; then TITLE="$SUBJ"; fi
+          fi
           if [ -z "$TITLE" ]; then TITLE="$TAG"; fi
 
-          # 正文首行已经带了版本号，标题就复用它；不重复拼 $TAG
+          # 正文文件只放正文，**不写 H1** —— 标题已经由 tag 注释提供了。这里仍防御性
+          # 剥掉首行 H1，避免有人照旧格式写了之后 Release 里标题重复一遍。
+          sed '1{/^#[[:space:]]/d}' "$NOTES" > /tmp/notes_body.md
+          if [ -s /tmp/notes_body.md ]; then
+            NOTES=/tmp/notes_body.md
+          else
+            printf '本版无功能变更。\n' > /tmp/notes_body.md
+            NOTES=/tmp/notes_body.md
+          fi
+
+          echo "release title = $TITLE"
           gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES" --verify-tag
