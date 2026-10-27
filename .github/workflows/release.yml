@@ -1,0 +1,94 @@
+name: release
+
+# 为什么需要这个 workflow
+# ----------------------
+# 本仓此前没有 CI：tag 推上来之后不会自动建 Release，全靠人记得手工 `gh release create`。
+# 发布流程技能里把它记成「最容易漏发布的一环」——2026-10-27 实际就漏了一次：
+# v1.1.2 的 tag 已经推上去，Release 却不存在，门禁 G4 会判「tag 已推但无 Release」。
+#
+# 现在改为：tag 推上来自动建；另外 master 有推送时兜底检查一次（补历史上漏发的那一个），
+# 也留 workflow_dispatch 供手工补发。
+#
+# 正文优先取 `.github/release-notes/<tag>.md`（用户视角、人工筛过）；
+# 没有该文件时退回 CHANGELOG 里对应版本的段落，至少不会是一句空话。
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Create release if missing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 需要完整历史与全部 tag：master 兜底逻辑要靠 git tag 找最新版本
+          fetch-depth: 0
+
+      - name: Resolve target tag
+        id: target
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          else
+            # master 推送或手工触发：取语义版本最大的 tag
+            TAG="$(git tag -l 'v*' --sort=-v:refname | head -n 1)"
+          fi
+          if [ -z "$TAG" ]; then
+            echo "没有找到 v* 标签，跳过。"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "目标标签：$TAG"
+
+      - name: Create release
+        if: steps.target.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.target.outputs.tag }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG 的 Release 已存在，无事可做。"
+            exit 0
+          fi
+
+          NOTES=".github/release-notes/${TAG}.md"
+          if [ ! -f "$NOTES" ]; then
+            VER="${TAG#v}"
+            # 取 CHANGELOG 里 `## [VER]` 到下一个 `## [` 之间的内容
+            awk -v v="$VER" '
+              /^## \[/ {
+                if (index($0, "[" v "]")) { keep=1; next }
+                else if (keep) { exit }
+              }
+              keep { print }
+            ' CHANGELOG.md > /tmp/notes.md
+            NOTES=/tmp/notes.md
+          fi
+
+          if [ ! -s "$NOTES" ]; then
+            printf '本版无功能变更。\n' > /tmp/notes.md
+            NOTES=/tmp/notes.md
+          fi
+
+          TITLE="$(head -n 1 "$NOTES" | sed -E 's/^#+[[:space:]]*//')"
+          if [ -z "$TITLE" ]; then TITLE="$TAG"; fi
+
+          # 正文首行已经带了版本号，标题就复用它；不重复拼 $TAG
+          gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES" --verify-tag
