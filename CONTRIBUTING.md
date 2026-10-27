@@ -88,10 +88,15 @@ git tag -a v1.1.2 -m "v1.1.2"
 git push origin master --follow-tags
 ```
 
-**本仓没有 CI**，tag 推送不会自动发布 —— Release 需要手工建：
+**tag 推送会自动建 Release**（`.github/workflows/release.yml`，2026-10-27 补上 —— 此前完全没有
+workflow，v1.1.2 因此漏发过一次）。正文优先取 `.github/release-notes/<tag>.md`：用户视角、
+随版本一起提交；该文件缺失时回退到 `CHANGELOG.md` 里对应版本的段落，再缺就写一句「本版无功能变更」。
+
+`master` 有推送时也会兜底检查一次最新 tag（补历史漏发），另留 `workflow_dispatch` 供手工补发。
+要改已发布版本的正文，手工执行：
 
 ```bash
-gh release create v1.1.2 --title "v1.1.2 — <一句话>" --notes-file notes.md
+gh release edit vX.Y.Z --notes-file .github/release-notes/vX.Y.Z.md
 ```
 
 正文只写使用者能感知的（镜像内容变没变、要不要改 compose、要不要重建卷）。纯指针上提
@@ -103,6 +108,7 @@ gh release create v1.1.2 --title "v1.1.2 — <一句话>" --notes-file notes.md
 - [ ] `git submodule status` 两级别都是干净状态（无 `-dirty`）
 - [ ] `compose.yaml` 的两个 `image:` tag 与新版本一致
 - [ ] `CHANGELOG.md` 顶部加条目
+- [ ] `.github/release-notes/<tag>.md` 已写（否则正文回退到 CHANGELOG 段落，读者会看到维护者视角的细节）
 - [ ] `docker compose config` 通过（语法错误的 compose 会让用户第一步就失败）
 - [ ] `docker compose build` 成功，两个镜像都能构建
 - [ ] 起一遍并访问 <http://127.0.0.1:8811>，确认不是白屏
