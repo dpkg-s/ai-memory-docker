@@ -11,7 +11,24 @@ Python 业务代码在子模块 `template/` 里，克隆时加 `--recurse-submod
 
 ---
 
-## 一条命令起全套
+## 两条命令起全套
+
+只想跑、不改代码的话**不需要 clone** —— 镜像在公开的 GHCR 上，compose 会自己拉：
+
+```bash
+mkdir ai-memory && cd ai-memory
+curl -O https://raw.githubusercontent.com/dpkg-s/ai-memory-docker/master/compose.yaml
+docker compose up -d
+```
+
+镜像同时提供 `linux/amd64` 与 `linux/arm64`，compose 按当前机器自动选，不用手动指定。
+
+| 服务 | 地址 | 说明 |
+| --- | --- | --- |
+| MCP 服务端 | <http://127.0.0.1:8700/mcp> | Streamable HTTP，26 个工具 |
+| Web 控制台 | <http://127.0.0.1:8811> | 首次登录 `admin` / `password`，进去第一件事改口令 |
+
+### 想改代码：clone 后自己构建
 
 ```bash
 git clone --recurse-submodules https://github.com/dpkg-s/ai-memory-docker.git
@@ -19,10 +36,8 @@ cd ai-memory-docker
 docker compose up -d --build
 ```
 
-| 服务 | 地址 | 说明 |
-| --- | --- | --- |
-| MCP 服务端 | <http://127.0.0.1:8700/mcp> | Streamable HTTP，25 个工具 |
-| Web 控制台 | <http://127.0.0.1:8811> | 首次登录 `admin` / `password`，进去第一件事改口令 |
+**`--build` 这时必须加**。compose 里 `pull_policy: missing` 的语义是「本地没有才拉」，而本地那份
+是上游镜像 —— 不加 `--build`，你改的代码不会进容器，跑的还是 GHCR 上那个。
 
 **`--recurse-submodules` 不能省**：控制台代码在二级 submodule `template/web-console/` 里，
 只拉一级的话 `Dockerfile.web` 会在 `COPY` 处报 not found。已有克隆补一次：

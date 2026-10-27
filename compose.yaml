@@ -16,8 +16,12 @@ services:
   # MCP 服务端（Streamable HTTP）
   # ---------------------------------------------------------------------------
   ai-memory:
-    # tag 与本仓版本对齐；升级 = 移 submodule 指针 + 改这里 + 重新 build
-    image: ai-memory:3.3.0
+    # 镜像来自公开的 GHCR —— 没有源码也能直接 `docker compose up -d`（会先拉这个）。
+    # tag 与本仓版本对齐；升级 = 移 submodule 指针 + 改这里 + 重新 build（或等上游发布）。
+    image: ghcr.io/dpkg-s/ai-memory:3.3.0
+    # missing：本地没有才拉。手工 `docker load` 过离线包的用户不会被重复拉一次；
+    # 改代码想重建则显式 `docker compose up -d --build`（build 段仍在，见下）。
+    pull_policy: missing
     build:
       context: .
     container_name: ai-memory
@@ -51,7 +55,9 @@ services:
   # Web 控制台（前端 + 反向代理 + 访问控制）
   # ---------------------------------------------------------------------------
   ai-memory-web:
-    image: ai-memory-web:1.12.0
+    # 同上：公开镜像，无源码可直接 up；本仓改前端才需要 --build。
+    image: ghcr.io/dpkg-s/ai-memory-web:1.12.0
+    pull_policy: missing
     build:
       # 上下文仍是本仓根：控制台代码在 template/web-console/（二级 submodule）
       context: .
