@@ -177,6 +177,68 @@ AI_MEMORY_HTTP_ALLOWED_HOSTS="127.0.0.1:*,localhost:*,host.docker.internal:8700"
 
 **用这里的 compose 就不会撞这个问题** —— 两个服务都在同一网络里，走服务名。
 
+## 可选：接 FNS 做多端分发
+
+记忆库是本地目录，只有开着那台机器时才看得到。想让手机、平板上的 Obsidian 读到同一份内容，
+可以在本栈旁边加一个 [Fast Note Sync Service](https://github.com/haierkeys/fast-note-sync-service)
+（FNS）同步客户端。**本仓的 compose 默认不含这个服务** —— 不接 FNS 的人不需要它，接的人也多半
+已经有自己的服务端。
+
+```
+AI 客户端（唯一写者）→ ai-memory 写 /vault → fns-sync 只读监听 → 上传 FNS 服务端 → 各端 Obsidian
+```
+
+### 加一个服务
+
+```yaml
+  fns-sync:
+    image: <你的 fns-sync 客户端镜像>   # 上游未提供官方镜像，需自行构建或使用社区镜像
+    restart: unless-stopped
+    depends_on:
+      - ai-memory-web
+    environment:
+      # 向控制台反向拉取渲染好的 config.yaml（拿不到则回退镜像内兜底模板）
+      AI_MEMORY_WEB_URL: http://ai-memory-web:8811
+      AI_MEMORY_WEB_INTERNAL_KEY: ${INTERNAL_KEY}
+      VAULT_PATH: /vault
+    volumes:
+      - vault:/vault:ro        # 单向模式下只需读，不给写权限
+      - fns-state:/state       # 同步状态：记录哪些条目已上传
+```
+
+并在 `volumes:` 段补上 `fns-state:`。`INTERNAL_KEY` 同时要传给控制台容器
+（`AI_MEMORY_WEB_INTERNAL_KEY`），两边一致才能拉到配置。
+
+三条红线在加这个服务时依然成立：
+
+- **`/vault` 必须是本地块设备**，不能换成 SMB / NFS 挂载 —— SQLite 的 WAL 与文件锁在网络文件系统上
+  行为不确定。
+- **8700 仍然只绑回环**。`fns-sync` 走 compose 内部网络拿配置，不需要把 MCP 端口开出去。
+- **一个 vault 只有一个写者**。同步链路建议使用独立的 vault 名（例如与日常使用的库分开），
+  同一 vault 名下有两个上传源就会互相覆盖，这一点无法靠客户端配置兜住。
+
+### 两种令牌，用途不同
+
+接 FNS 会碰到两类令牌，别混：
+
+| 令牌 | 出现位置 | 用途 |
+| --- | --- | --- |
+| API 令牌 | 请求头 `Authorization: Bearer <JWT>` | 同步客户端与脚本调用。**用户级**，一个令牌可操作多个 vault（vault 由客户端指定），吊销后返回 `code=308` |
+| 分享令牌 | URL 路径里 `/share/{id}/{token}` | 把单篇笔记以只读链接发给别人看，免登录 |
+
+分享令牌那串约 60 字符的值才是钥匙 —— 前面的数字 `id` 是笔记自增主键，可枚举但没令牌无效。
+它可设密码与有效期，服务端会记录访问次数与最后访问时间。**链接一旦发出就等于把内容交出去了**，
+没有二次校验，所以涉密笔记要么不分享，要么必带有效期 + 密码。
+
+### 排除规则
+
+镜像式同步把「服务端不存在的路径」当作已删除，vault 里除了笔记不应放别的东西。控制台下发的
+配置默认排除 `.git`、`.obsidian`（其 `data.json` 含明文 JWT）、`.trash` 与代码副本目录，
+扩展名层面排除 `.db`、`.json`、`.tmp`、`.lock`、`.syncbak`。要加规则就在控制台的 `exclude` 里填。
+
+> 具体字段、体检码与下发机制见 [ai-memory-web](https://github.com/dpkg-s/ai-memory-web) 的
+> 「配置页 · FNS 同步」一节。
+
 ## 升级
 
 数据都在具名卷里，升镜像不影响它 —— 但别用 `docker compose down -v`，那会把卷一起删掉。
