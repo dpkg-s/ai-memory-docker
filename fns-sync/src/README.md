@@ -1,0 +1,275 @@
+# go-fast-note-sync
+
+> **English** | [中文](README.zh-CN.md)
+
+A Linux/headless Go CLI daemon that syncs a local [Obsidian](https://obsidian.md) vault with a self-hosted [fast-note-sync-service](https://github.com/haierkeys/fast-note-sync-service) instance over WebSocket — no desktop, no GUI required.
+
+## Features
+
+- **Bidirectional sync** — notes, attachments, settings, and folders
+- **Live file watching** — incremental push on local change via fsnotify, with debounce and echo suppression
+- **Binary file chunked transfer** — resumable multi-chunk upload/download with checkpoints
+- **Startup sync** — full vault reconciliation on connect, then incremental deltas
+- **Automatic reconnect** — on-failure reconnect with configurable restart
+- **systemd-ready** — ships a user-service unit file for unattended background operation
+- **Config via YAML** — environment variable expansion (`${VAR}`) supported
+- **Persistent state** — atomic JSON state file; crash-safe pending hashes and upload checkpoints
+
+## Requirements
+
+- Go 1.24.5+
+- A reachable `fast-note-sync-service` instance with a valid API token
+- Linux (primary target); other POSIX systems may work but are untested
+
+## Verified Compatibility
+
+The table lists combinations covered by the project's retained live smoke suite. Other combinations may work, but are not claimed as verified.
+
+| go-fast-note-sync | Obsidian client protocol baseline | fast-note-sync-service | Validation |
+|-------------------|-----------------------------------|------------------------|------------|
+| `v1.1.x` | Official client `2.4.0` | `3.6.0` | 17–20-case live smoke suite (`v1.1.0`–`v1.1.3`) |
+| `v1.0.0` | Client `2.0.15` generation | Not pinned in historical records | 14-case live smoke suite; no explicit server-version claim |
+
+For new deployments, use the latest `v1.1.x` release (`v1.1.3`) with service `3.6.0`.
+
+## Installation
+
+### From GitHub Release (recommended)
+
+Download the pre-built binary for your platform from the [GitHub Releases page](https://github.com/erichll/go-fast-note-sync/releases). Each release includes platform archives and a `checksums.txt` for verification.
+
+**Linux x86-64 example:**
+
+```bash
+VERSION=v1.1.3
+curl -LO "https://github.com/erichll/go-fast-note-sync/releases/download/${VERSION}/go-fast-note-sync_linux_amd64.tar.gz"
+curl -LO "https://github.com/erichll/go-fast-note-sync/releases/download/${VERSION}/checksums.txt"
+tar -xzf go-fast-note-sync_linux_amd64.tar.gz
+install -m 755 go-fast-note-sync ~/.local/bin/go-fast-note-sync
+```
+
+Verify checksum:
+
+```bash
+sha256sum -c checksums.txt --ignore-missing
+```
+
+> **Supported platforms for binary releases:** linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64.
+> The primary supported runtime target is **Linux/headless**. darwin and windows artifacts are provided as release binaries only and are not guaranteed to work in production.
+
+### From Docker (GHCR)
+
+```bash
+docker pull ghcr.io/erichll/go-fast-note-sync:latest
+```
+
+The GHCR package is public — no `docker login` required. Replace `latest` with a specific tag (e.g. `v1.1.3`) for pinned deployments.
+
+> **Architecture:** published images are **linux/amd64 only**. Release archives additionally cover linux/arm64, darwin/amd64, darwin/arm64, and windows/amd64. On other architectures, build the image locally (see **[deploy/docker/README.md](deploy/docker/README.md)**).
+
+See **[deploy/docker/README.md](deploy/docker/README.md)** for the full operator quickstart.
+
+### From source
+
+```bash
+git clone https://github.com/erichll/go-fast-note-sync.git
+cd go-fast-note-sync
+go build -o ~/.local/bin/go-fast-note-sync ./cmd
+```
+
+### Verify
+
+```bash
+go-fast-note-sync --help
+go-fast-note-sync --version
+```
+
+## Upgrading to v1.1.x
+
+v1.1.0 adopts the rolling-hash and paged-sync contracts used by the official client 2.4.0 and service 3.6.0. On first start, an older state file is migrated automatically: incompatible hash caches, pending hashes, upload checkpoints, incremental sync timestamps, and the initial-sync marker are reset so the daemon performs a full reconciliation. Folder snapshots and the WebSocket connection counter are retained.
+
+No configuration-file changes are required. As with any sync-engine upgrade, stop the daemon and back up the vault and state file before replacing the binary.
+
+## Quick Start
+
+**1. Generate default config**
+
+```bash
+go-fast-note-sync init-config
+# writes ~/.config/go-fast-note-sync/config.yaml
+```
+
+**2. Edit config**
+
+```yaml
+# ~/.config/go-fast-note-sync/config.yaml
+api: https://your-fast-note-sync-service.example.com
+api_token: ${FAST_NOTE_TOKEN}   # or paste token directly
+vault: MyVault
+vault_path: /home/you/vault/MyVault
+sync_enabled: true
+config_sync_enabled: true
+```
+
+**3. Start the daemon**
+
+```bash
+go-fast-note-sync start
+# or with explicit config path:
+go-fast-note-sync start --config /path/to/config.yaml
+```
+
+**Check sync status (offline)**
+
+```bash
+go-fast-note-sync status
+# prints vault, api, sync switches, last sync times, cache counts, and pending counts
+```
+
+**Trigger a one-shot sync and exit**
+
+```bash
+go-fast-note-sync sync
+# connects, waits for the startup sync round to complete, then exits 0
+# use --timeout to override the default 60s wait:
+go-fast-note-sync sync --timeout 120s
+```
+
+## Configuration Reference
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `api` | — | Base URL of the sync service |
+| `api_token` | — | Auth token (supports `${ENV_VAR}`) |
+| `vault` | — | Vault name on the server |
+| `vault_path` | — | Absolute local path to the vault |
+| `client_type` | `GoFastNoteSync` | Client identifier sent to server; override when the token scope restricts `c:<value>` |
+| `sync_enabled` | `true` | Enable note/attachment sync |
+| `config_sync_enabled` | `true` | Enable `.obsidian` settings sync |
+| `offline_delete_sync_enabled` | `false` | Push local deletes that happened while offline |
+| `readonly_sync_enabled` | `false` | One-way mode: apply remote changes locally but never upload local changes |
+| `manual_sync_enabled` | `false` | Disable automatic sync rounds (connect, startup, watcher); only the `sync` command triggers a round |
+| `offline_sync_strategy` | `""` | Server-side offline conflict strategy: `""`, `manualMerge`, `ignoreTimeMerge`, or `newTimeMerge`; legacy `auto` normalizes to `""` |
+| `sync_update_delay` | `500` | Debounce delay in ms for local file events |
+| `binary_sync_limit_enabled` | `true` | Skip files larger than 128 MiB |
+| `concurrency_control_enabled` | `true` | Enable upload slot control |
+| `max_concurrent_uploads` | `3` | Max parallel file uploads |
+| `sync_exclude_folders` | `[]` | Literal root-relative paths, or single directory names at any depth |
+| `sync_exclude_extensions` | `[]` | File extensions to exclude (case-insensitive) |
+| `sync_exclude_whitelist` | `[]` | Literal root-relative paths overriding ordinary exclusions |
+| `config_sync_other_dirs` | `[]` | Extra vault directories synced as setting files in addition to `.obsidian` |
+| `startup_delay` | `0` | Seconds to wait before first connect |
+| `auto_redirect_enabled` | `true` | Follow a redirected `/api/health` response and adopt the new runtime API base URL |
+| `sync_timeout_seconds` | `0` | Max seconds to wait for a sync round; `0` uses the built-in 60 s default |
+| `state_file` | auto | Override default state file path |
+
+Default state path: `~/.local/share/go-fast-note-sync/state.json`
+
+### Exclusion rules
+
+Folder and whitelist rules are case-sensitive literals, not regular expressions. Windows separators and trailing slashes are normalized; matches respect path-segment boundaries. For example, `cache` excludes directories named `cache` at any depth, while `private/cache` excludes only that root-relative subtree.
+
+Dot-files and dot-directories are excluded by default. Whitelists can restore them and override folder/extension exclusions; excluded ancestors remain traversable but are not themselves synchronized. Temporary paths ending in `.tmp`, containing `.tmp.`, or matching internal `.<filename>.tmp-*` staging names, AppleDouble/`.DS_Store` artifacts, and sensitive plugin configuration cannot be restored by a whitelist. `.obsidian` retains its dedicated settings scope. Existing remote artifacts are not automatically deleted by these filters.
+
+This intentionally differs from the official plugin’s regex/default case-insensitive matcher. Destination-directory attachment staging is intended to inherit Windows directory ACLs, but its Windows/SMB runtime effect has not yet been independently verified.
+
+## Token & Client Type
+
+`client_type` is sent to the server as the `?client=` query parameter in the WebSocket URL and as the `type` field in the `ClientInfo` handshake message. The default value is `GoFastNoteSync`.
+
+### Creating a token in the management console
+
+When creating or editing a token, the console shows a **Client restriction** field (客户端限制). Whatever you enter there must exactly match the `client_type` in your config file, or the WebSocket handshake will be rejected with `AuthorizationFaild` (error code 315).
+
+| Management console "Client restriction" | Config `client_type` | Result |
+|-----------------------------------------|----------------------|--------|
+| `GoFastNoteSync` | `GoFastNoteSync` (default) | ✅ connects |
+| *(left empty / no restriction)* | any value | ✅ connects |
+| `GoFastNoteSync` | `MyCustomClient` | ❌ rejected |
+
+**Recommended:** set the Client restriction to `GoFastNoteSync` when issuing a token for this daemon — no config change needed since that is the default.
+
+If you need a custom identifier, set both sides to the same value:
+
+```yaml
+client_type: MyCustomClient
+```
+
+## systemd User Service
+
+Copy the unit file and enable it:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/systemd/go-fast-note-sync.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now go-fast-note-sync
+```
+
+The service reads `~/.config/go-fast-note-sync/config.yaml` by default. Optionally drop secrets into `~/.config/go-fast-note-sync/sync.env`:
+
+```bash
+# sync.env
+FAST_NOTE_TOKEN=your_token_here
+```
+
+Check status and logs:
+
+```bash
+systemctl --user status go-fast-note-sync
+journalctl --user -u go-fast-note-sync -f
+```
+
+## Docker Deployment
+
+A multi-stage Dockerfile and Compose file are provided in `deploy/docker/`. See **[deploy/docker/README.md](deploy/docker/README.md)** for the full operator quickstart covering build, configuration, volume layout, and inotify tuning.
+
+## Development
+
+```bash
+# Format
+go fmt ./...
+
+# Lint (requires golangci-lint)
+golangci-lint run ./...
+
+# Test with race detector
+go test -race ./... -coverprofile=coverage.out -covermode=atomic
+
+# Build
+go build ./...
+```
+
+Coverage gate: total and `internal/sync` statement coverage must both stay ≥ 80%.
+
+## Project Structure
+
+```
+.github/workflows/  CI (fmt, lint, race tests, coverage gate) and tag release/GHCR publish
+cmd/                CLI entry point (start / status / sync / init-config)
+internal/
+  config/           YAML config loading, defaults, and ${ENV} expansion
+  hash/             Rolling content/path hashing compatible with the official protocol
+  local/            Watcher-to-sync event contract
+  state/            Atomic JSON state persistence
+  sync/             WebSocket client, sync rounds, protocol handlers, chunked transfer, exclusions
+  watcher/          fsnotify integration with debounce, rename pairing, and overflow reporting
+deploy/systemd/     systemd user-service unit
+deploy/docker/      Multi-stage Dockerfile, Compose file, and operator README
+test/smoke/         Live-service smoke suite (cases, shared harness, cleanup scripts)
+```
+
+## Protocol
+
+The daemon implements the WebSocket sync protocol used by the `obsidian-fast-note-sync` plugin:
+
+- Health check: `GET /api/health`
+- WebSocket: `ws(s)://[api]/api/user/sync?lang=&count=&client=&clientName=&clientVersion=`
+- Text frames: `ACTION|JSON`
+- Binary frames: 2-byte prefix (`00`) + 36-byte session ID + 4-byte chunk index + data
+
+Sync modules: **NoteSync**, **FileSync**, **SettingSync**, **FolderSync** — each with a `*SyncEnd` completion signal.
+
+## License
+
+[Apache 2.0](LICENSE)

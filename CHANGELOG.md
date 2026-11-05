@@ -18,6 +18,26 @@
 `compose.yaml` 里的 `image:` tag 与本仓 tag 对齐，便于反查「这个镜像跑的是哪份定义」。
 镜像自身的版本跟随上游：`ai-memory:<template 版本>`、`ai-memory-web:<web 版本>`。
 
+## [1.2.0] - 2026-11-05
+
+> 主题：**FNS 同步事件可见**。控制台新增「日志」页，右栏要显示「什么时候上传 / 修改 / 下载了哪条笔记」，
+> 而 fns-sync 此前只往 stdout 打日志（控制台容器拿不到，也不该去拿 docker.sock）。这一轮由客户端
+> 自己把事件写成 JSONL，控制台只读同一个卷。
+
+### Added
+
+- **fns-sync 落盘同步事件 `sync-events.jsonl`** —— 每次同步动作后追加一行：`t`（unix 毫秒）、`kind`（note / file / setting）、`action`（upload / download / modify / delete / rename）、`path`、`title`、`size`、`detail`。文件与 `state.json` 同目录（`/state` 卷），1 MiB 封顶压到最近 2000 条；写盘失败只记一条告警，**绝不中断同步**。`FNS_SYNC_EVENTS` 可覆盖路径，`off` / `none` / `-` 关闭。
+- **`compose.yaml`：`ai-memory-web` 只读挂载 `fns-state:/fns-state`** —— 配合 `AI_MEMORY_WEB_FNS_LOG=/fns-state/sync-events.jsonl`，控制台由此读到同步事件。未启用 `fns` profile 时该卷为空，控制台显示「FNS 事件源未接入」而不是报错。
+- **镜像 tag 跟随上游 3.3.1 / 1.13.0**，`template` 子模块指针提到 `v3.3.1`。两个镜像需按新 tag 构建推送：
+  `docker build -t ghcr.io/dpkg-s/ai-memory:3.3.1 -f Dockerfile .` 与
+  `docker build -t ghcr.io/dpkg-s/ai-memory-web:1.13.0 -f Dockerfile.web .`（再 `docker push`）。
+  `pull_policy: missing` 下未推送时 `up -d` 会先尝试拉取而失败，**离线部署请先 `docker load` 对应 tar**。
+
+### Notes
+
+- 事件文件由 **fns-sync 单写、web 只读**：两个写者会让「谁是最后一行」不可知。
+- 未启用 `fns` profile 的栈不需要这一卷：绑定是空的、只读，不影响访问日志与其它页面。
+
 ## [1.1.2] - 2026-10-27
 
 > 主题：**镜像跟随上游 3.3.0 / 1.12.0**。上游这轮动了服务端的权限模型和控制台的访问控制，镜像内容因此必须重建 —— 不重建的话 `security` / `clearance` 两个新字段不会生效。

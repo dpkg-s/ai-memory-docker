@@ -1,0 +1,76 @@
+# FNS 同步客户端配置（go-fast-note-sync）
+#
+# 这是镜像内的**兜底模板**，三种生效方式：
+#   ① 控制台接管（推荐）：在「配置 → FNS 同步」里填好，容器反向拉取渲染好的配置，
+#      本文件不参与（见 compose.yaml 的 FNS_CONFIG_REMOTE 开关）。
+#   ② 环境变量驱动：不挂任何卷，靠 compose 的 FNS_API / FNS_TOKEN 注入，直接用本文件。
+#   ③ 挂载覆盖：把本文件复制出去改好，挂到 /config/config.yaml。
+#
+# ⚠️ 本文件会被「全文件正则替换」处理环境变量语法，注释里也不要写那种写法。
+#    未定义的环境变量会让程序**直接报错退出**（快速失败），不会静默用空值。
+# ⚠️ api_token 不要写死在文件里、不要进 git —— 用环境变量或控制台下发。
+
+api: "${FNS_API}"
+# 你的 FNS 服务端地址。自签证书很常见，客户端已放宽校验。
+# 🔴 同机部署不要填 127.0.0.1 —— 那是容器自己的回环，不是宿主机。
+
+api_token: "${FNS_TOKEN}"
+# FNS 后台签发的 JWT（通常以 eyJ 开头）。
+# token 的 c: 维度必须与下面的 client_type 一致，否则握手 315。
+
+vault: "ai-memory"
+# 目标 vault 名。⚠️ 同一个 vault 只能有一台上传源：多台各自当写者时服务端会互相覆盖
+# （冲突策略只兜「同时改同一篇」，兜不住两台各自推全量）。
+
+vault_path: "/vault"
+# 🔴 留空则不会创建 watcher，等于「连云但永不上传本地文件」，是最隐蔽的失效方式。
+# 🔴 这个目录必须**可写**：服务端会把「客户端没有的笔记」下发过来，挂 :ro 时写入必然
+#    EROFS，症状是「服务端有、本地没有」。
+
+client_type: "GoFastNoteSync"
+# 必须与生成 apiToken 时选择的「客户端限制」一致，否则 WS 握手 315。
+# 常见值：GoFastNoteSync / ObsidianPlugin / obsidian / mobile / desktop。
+# 不确定就在控制台点「测试连接」—— 它会逐个候选试出来命中的那个。
+
+sync_enabled: true
+config_sync_enabled: false
+# 🔴 默认是 true，必须显式关掉；否则会把 .obsidian / data.json 一类配置回灌。
+
+sync_mode: "rw"
+# rw = 双向 / ro = 只读（只接收） / wo = 只写（只上传）。
+# 🔴 非法值会被拒绝启动，不会静默回落 —— 拼错一个字母就把「只写」变成读写。
+
+readonly_sync_enabled: false
+# legacy 别名，等价于 sync_mode: ro；由 sync_mode 派生，只在没有 sync_mode 时起作用。
+
+offline_delete_sync_enabled: false
+# 🔴 建议保持 false：空库首次启动时，服务端会下发一批 delete，开着的风险由你承担。
+
+manual_sync_enabled: false
+
+sync_update_delay: 500
+# ms 防抖，配合 ai-memory 的原子写（os.replace）
+
+startup_delay: 15
+# 秒。首轮全量几百篇时给服务端 history 留点缓冲
+
+sync_timeout_seconds: 120
+binary_sync_limit_enabled: true
+concurrency_control_enabled: true
+max_concurrent_uploads: 3
+
+sync_exclude_folders:
+  - ".git"
+  - ".obsidian"
+  - ".trash"
+  - "ai-memory"
+
+sync_exclude_extensions:
+  - ".db"
+  - ".tmp"
+  - ".lock"
+  - ".json"
+  - ".syncbak"
+
+state_file: "/state/state.json"
+# 🔴 必须外置到可写卷；留空会落到 HOME 下，指到 vault 内则在 :ro 下必然失败。

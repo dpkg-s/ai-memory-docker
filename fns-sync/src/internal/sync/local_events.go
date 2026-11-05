@@ -1,0 +1,309 @@
+package sync
+
+import (
+	"errors"
+	"log"
+	"os"
+	"strings"
+
+	"github.com/erichll/go-fast-note-sync/internal/local"
+)
+
+type localCategory int
+
+const (
+	localCategorySkip localCategory = iota
+	localCategoryNote
+	localCategoryFile
+	localCategorySetting
+	localCategoryFolder
+)
+
+func localSkipped() local.Result {
+	return local.Result{}
+}
+
+func localAttempt(err error) local.Result {
+	return local.Result{Attempted: true, Err: err}
+}
+
+func (s *SyncService) localReady() bool {
+	if s == nil || s.cfg == nil {
+		return false
+	}
+	if !s.cfg.SyncEnabled || s.cfg.ManualSyncEnabled || s.cfg.ReadOnlySyncEnabled {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.isOpen && s.isAuth
+}
+
+// ShouldWatchDir lets the watcher skip excluded directory trees while keeping
+// .obsidian visible for setting-file changes.
+func (s *SyncService) ShouldWatchDir(raw string) bool {
+	rel := strings.TrimSpace(strings.ReplaceAll(raw, "\\", "/"))
+	if rel == "" || rel == "." {
+		return true
+	}
+	clean, err := normalizeSyncPath(rel)
+	if err != nil {
+		return false
+	}
+	if isFilesystemJunkPath(clean) {
+		return false
+	}
+	if clean == obsidianConfigDir || strings.HasPrefix(clean, obsidianConfigDir+"/") {
+		return true
+	}
+	if s.cfg.ConfigSyncEnabled {
+		for _, dir := range s.cfg.ConfigSyncOtherDirs {
+			allowed, err := normalizeSyncPath(dir)
+			if err == nil && (literalPathPrefix(clean, allowed) || literalPathPrefix(allowed, clean)) {
+				return true
+			}
+		}
+	}
+	return s.shouldTraverseVaultDir(clean)
+}
+
+func (s *SyncService) HandleLocalModify(ev local.PathEvent) local.Result {
+	if !s.localReady() {
+		return localSkipped()
+	}
+	rp, err := s.resolveVaultPath(ev.Path)
+	if err != nil {
+		return localSkipped()
+	}
+	s.mu.Lock()
+	_, echoed := s.lastSyncMtime[rp.Rel]
+	s.mu.Unlock()
+	if echoed {
+		return localSkipped()
+	}
+
+	if ev.IsDir {
+		if s.localCategory(rp.Rel, true) != localCategoryFolder {
+			return localSkipped()
+		}
+		return localAttempt(s.SendFolderModify(rp.Rel))
+	}
+
+	info, statErr := os.Stat(rp.Abs)
+	if statErr != nil {
+		return localSkipped()
+	}
+	size := info.Size()
+	switch s.localCategory(rp.Rel, false) {
+	case localCategoryNote:
+		// 「修改了什么」= 本地改动已被推给服务端（2026-11-05）。
+		// 只记发送成功的一刻：发送失败时改动并没有传播出去，日志里不能写成既成事实。
+		err := s.sendFileContentModify("NoteModify", rp, s.setPendingNoteModify, nil)
+		if err == nil {
+			s.syncEvent("note", "modify", rp.Rel, size, "本地改动")
+		}
+		return localAttempt(err)
+	case localCategoryFile:
+		err := s.SendFileUploadCheck(rp.Rel)
+		if err == nil {
+			s.syncEvent("file", "modify", rp.Rel, size, "本地改动")
+		}
+		return localAttempt(err)
+	case localCategorySetting:
+		return localAttempt(s.sendFileContentModify("SettingModify", rp, s.setPendingConfigModify, nil))
+	default:
+		return localSkipped()
+	}
+}
+
+func (s *SyncService) HandleLocalDelete(ev local.PathEvent) local.Result {
+	if !s.localReady() {
+		return localSkipped()
+	}
+	rp, err := s.resolveVaultPath(ev.Path)
+	if err != nil {
+		return localSkipped()
+	}
+	s.mu.Lock()
+	_, echoed := s.lastSyncPathDeleted[rp.Rel]
+	s.mu.Unlock()
+	if echoed {
+		return localSkipped()
+	}
+
+	switch s.localCategory(rp.Rel, ev.IsDir) {
+	case localCategoryNote:
+		err := s.SendNoteDelete(rp.Rel)
+		if err == nil {
+			s.syncEvent("note", "delete", rp.Rel, 0, "本地删除")
+		}
+		return localAttempt(err)
+	case localCategoryFile:
+		err := s.SendFileDelete(rp.Rel)
+		if err == nil {
+			s.syncEvent("file", "delete", rp.Rel, 0, "本地删除")
+		}
+		return localAttempt(err)
+	case localCategorySetting:
+		return localAttempt(s.SendSettingDelete(rp.Rel))
+	case localCategoryFolder:
+		return localAttempt(s.SendFolderDelete(rp.Rel))
+	default:
+		return localSkipped()
+	}
+}
+
+func (s *SyncService) HandleLocalRename(ev local.RenameEvent) local.Result {
+	if !s.localReady() {
+		return localSkipped()
+	}
+	oldRP, oldErr := s.resolveVaultPath(ev.OldPath)
+	newRP, newErr := s.resolveVaultPath(ev.NewPath)
+	if oldErr != nil && newErr != nil {
+		return localSkipped()
+	}
+	s.mu.Lock()
+	_, oldEcho := s.lastSyncPathRenamed[oldRP.Rel]
+	_, newEcho := s.lastSyncPathRenamed[newRP.Rel]
+	_, remoteWriteEcho := s.lastSyncMtime[newRP.Rel]
+	s.mu.Unlock()
+	if oldEcho || newEcho || remoteWriteEcho {
+		return localSkipped()
+	}
+
+	oldCat := localCategorySkip
+	newCat := localCategorySkip
+	if oldErr == nil {
+		oldCat = s.localCategory(oldRP.Rel, ev.OldIsDir)
+	}
+	if newErr == nil {
+		newCat = s.localCategory(newRP.Rel, ev.NewIsDir)
+	}
+
+	if oldCat == localCategorySkip && newCat == localCategorySkip {
+		return localSkipped()
+	}
+	if oldCat == newCat && oldCat != localCategorySkip {
+		switch oldCat {
+		case localCategoryNote:
+			err := s.SendNoteRename(oldRP.Rel, newRP.Rel)
+			if err == nil {
+				s.syncEvent("note", "rename", newRP.Rel, 0, oldRP.Rel)
+			}
+			return localAttempt(err)
+		case localCategoryFile:
+			err := s.SendFileRename(oldRP.Rel, newRP.Rel)
+			if err == nil {
+				s.syncEvent("file", "rename", newRP.Rel, 0, oldRP.Rel)
+			}
+			return localAttempt(err)
+		case localCategorySetting:
+			return localAttempt(s.SendSettingRename(oldRP.Rel, newRP.Rel))
+		case localCategoryFolder:
+			return localAttempt(s.SendFolderRename(oldRP.Rel, newRP.Rel))
+		}
+	}
+
+	attempted := false
+	if oldCat != localCategorySkip {
+		attempted = true
+		if err := s.sendLocalDeleteForCategory(oldCat, oldRP.Rel); err != nil {
+			return localAttempt(err)
+		}
+	}
+	if newCat != localCategorySkip {
+		attempted = true
+		if err := s.sendLocalModifyForCategory(newCat, newRP); err != nil {
+			return localAttempt(err)
+		}
+	}
+	return local.Result{Attempted: attempted}
+}
+
+func (s *SyncService) localCategory(rel string, isDir bool) localCategory {
+	if isDir {
+		if s.isFolderPathExcluded(rel) || rel == obsidianConfigDir || strings.HasPrefix(rel, obsidianConfigDir+"/") {
+			return localCategorySkip
+		}
+		return localCategoryFolder
+	}
+	if s.cfg.ConfigSyncEnabled && s.isConfigSyncPathAllowed(rel) {
+		return localCategorySetting
+	}
+	if rel == obsidianConfigDir || strings.HasPrefix(rel, obsidianConfigDir+"/") {
+		return localCategorySkip
+	}
+	if s.isVaultFileExcluded(rel) {
+		return localCategorySkip
+	}
+	if strings.HasSuffix(strings.ToLower(rel), ".md") {
+		return localCategoryNote
+	}
+	return localCategoryFile
+}
+
+func (s *SyncService) sendLocalDeleteForCategory(cat localCategory, rel string) error {
+	switch cat {
+	case localCategoryNote:
+		return s.SendNoteDelete(rel)
+	case localCategoryFile:
+		return s.SendFileDelete(rel)
+	case localCategorySetting:
+		return s.SendSettingDelete(rel)
+	case localCategoryFolder:
+		return s.SendFolderDelete(rel)
+	default:
+		return nil
+	}
+}
+
+func (s *SyncService) sendLocalModifyForCategory(cat localCategory, rp resolvedPath) error {
+	if cat != localCategoryFolder {
+		if _, err := os.Stat(rp.Abs); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+	}
+	switch cat {
+	case localCategoryNote:
+		return s.sendFileContentModify("NoteModify", rp, s.setPendingNoteModify, nil)
+	case localCategoryFile:
+		return s.SendFileUploadCheck(rp.Rel)
+	case localCategorySetting:
+		return s.sendFileContentModify("SettingModify", rp, s.setPendingConfigModify, nil)
+	case localCategoryFolder:
+		return s.SendFolderModify(rp.Rel)
+	default:
+		return nil
+	}
+}
+
+// HandleWatchOverflow responds to a dropped-event burst from the OS watcher.
+//
+// An overflow means an unknown set of local writes produced no event. Those
+// writes are invisible to the incremental path forever: an incremental scan
+// skips files whose mtime predates the last sync time, so a file written
+// during the overflow window is never re-offered. A full re-scan is the only
+// way to find them, so this deliberately ignores the persisted sync
+// timestamps. If a sync is already in flight the recovery is queued so the
+// overflow cannot be lost, and multiple overflows collapse to one eventual
+// full reconciliation.
+func (s *SyncService) HandleWatchOverflow() {
+	log.Printf("[sync] watcher overflow: requesting full re-scan to recover dropped events")
+	s.mu.Lock()
+	if s.cfg != nil && s.cfg.ManualSyncEnabled {
+		s.mu.Unlock()
+		log.Printf("[sync] watcher overflow: manual sync mode, ignoring")
+		return
+	}
+	if s.isSyncing {
+		s.overflowRescanPending = true
+		s.mu.Unlock()
+		log.Printf("[sync] watcher overflow: full re-scan queued until current round finishes")
+		return
+	}
+	s.mu.Unlock()
+	go s.handleSync(false)
+}

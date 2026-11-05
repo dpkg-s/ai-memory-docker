@@ -18,7 +18,7 @@ services:
   ai-memory:
     # 镜像来自公开的 GHCR —— 没有源码也能直接 `docker compose up -d`（会先拉这个）。
     # tag 与本仓版本对齐；升级 = 移 submodule 指针 + 改这里 + 重新 build（或等上游发布）。
-    image: ghcr.io/dpkg-s/ai-memory:3.3.0
+    image: ghcr.io/dpkg-s/ai-memory:3.3.1
     # missing：本地没有才拉。手工 `docker load` 过离线包的用户不会被重复拉一次；
     # 改代码想重建则显式 `docker compose up -d --build`（build 段仍在，见下）。
     pull_policy: missing
@@ -48,6 +48,14 @@ services:
       # 具名卷：数据在 Docker 管理的卷里，docker compose down 不会删掉它。
       # 想直接指向一个已有记忆库目录，把下面两行换成 bind mount：
       #   - /path/to/your/ai-memory:/vault      （Windows 形如 - D:/memory/ai-memory:/vault）
+      #
+      # 🔴 Linux + SELinux（RHEL / AlmaLinux / Fedora / CentOS）走 bind mount 时**必须**加
+      #    `:z`，否则容器启动即 Permission denied，而宿主上 `ls -ld` 看着一切正常：
+      #      - /path/to/your/ai-memory:/vault:z
+      #    要一个目录被多个容器共享（如再加 fns-sync）时，**只能用大写以外的 `:z`**。
+      #    大写 `:Z` 会给每个容器分配独占 MCS 标签，后挂的容器把先挂的锁死 ——
+      #    症状是「原来好好的 MCP 突然读不到 /vault」，极难定位。
+      #    用上面的具名卷则完全不需要关心这些（标签由容器引擎自己管）。
       - vault:/vault
       - state:/state
 
@@ -56,7 +64,7 @@ services:
   # ---------------------------------------------------------------------------
   ai-memory-web:
     # 同上：公开镜像，无源码可直接 up；本仓改前端才需要 --build。
-    image: ghcr.io/dpkg-s/ai-memory-web:1.12.0
+    image: ghcr.io/dpkg-s/ai-memory-web:1.13.0
     pull_policy: missing
     build:
       # 上下文仍是本仓根：控制台代码在 template/web-console/（二级 submodule）
@@ -89,8 +97,61 @@ services:
       - am-conf:/config
       # 要读 vault（索引、笔记预览、阈值写入）时再打开，默认只读挂载
       # - vault:/vault:ro
+      # FNS 同步事件（2026-11-05，控制台「日志」页的右栏）。
+      # 写者是 fns-sync 容器（它把事件追加到 /state/sync-events.jsonl），
+      # 控制台**只读**同一卷 —— 两个写者会让「谁是最后一行」不可知。
+      # 未启用 fns profile 时这一卷是空的，界面显示「FNS 事件源未接入」，
+      # 访问日志不受影响（不是错误）。
+      - fns-state:/fns-state:ro
+
+    environment:
+      # FNS 同步事件文件（只读挂载点的绝对路径）。
+      # 与 fns-sync 的 state_file(/state/state.json) 同目录，故文件名固定。
+      AI_MEMORY_WEB_FNS_LOG: /fns-state/sync-events.jsonl
+
+  # ---------------------------------------------------------------------------
+  # FNS 同步客户端（可选，默认不启动）
+  #
+  # 作用：把 /vault 与远端 FNS 服务端双向同步，让手机/平板上的 Obsidian 也能读到。
+  # 启用：docker compose --profile fns up -d --build
+  #
+  # 上游没有官方镜像，所以构建件随本仓提供（./fns-sync/，含 Go 源码与入口包装）。
+  # 首次启动要先编译，约需 1–3 分钟；之后走构建缓存。
+  # ---------------------------------------------------------------------------
+  fns-sync:
+    profiles: ["fns"]
+    # 本地构建产物名。不要改成 GHCR 地址 —— 上游未发布，改了会拉不到。
+    image: ai-memory-fns-sync:local
+    build:
+      context: ./fns-sync
+      args:
+        # 国内直连 proxy.golang.org 基本不通，默认走 goproxy.cn
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,https://proxy.golang.org,direct}
+    container_name: ai-memory-fns-sync
+    restart: unless-stopped
+    depends_on:
+      - ai-memory-web
+
+    environment:
+      # ① 控制台接管（推荐）：在控制台「配置 → FNS 同步」里填好，容器反向拉取。
+      #    两项都留空则走 ② 。
+      FNS_CONFIG_REMOTE: ${FNS_CONFIG_REMOTE:-}
+      FNS_CONFIG_KEY: ${INTERNAL_KEY:-}
+      # ② 环境变量驱动：不配控制台时靠这两个直接跑（模板已内置在镜像里）
+      FNS_API: ${FNS_API:-}
+      FNS_TOKEN: ${FNS_TOKEN:-}
+      # 兜底模板路径；镜像内已自带一份
+      FNS_CONFIG: /config/config.yaml
+
+    volumes:
+      # 🔴 双向同步：下行要写盘，绝不能加 :ro
+      # 具名卷无需关心 SELinux；若换成 bind mount，Linux 上要加 :z（小写）
+      - vault:/vault
+      # 同步状态（哪些条目已上传）。用卷而不是容器层，重建容器不丢
+      - fns-state:/state
 
 volumes:
   vault:
   state:
   am-conf:
+  fns-state:
