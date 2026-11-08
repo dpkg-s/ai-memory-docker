@@ -18,6 +18,25 @@
 `compose.yaml` 里的 `image:` tag 与本仓 tag 对齐，便于反查「这个镜像跑的是哪份定义」。
 镜像自身的版本跟随上游：`ai-memory:<template 版本>`、`ai-memory-web:<web 版本>`。
 
+## [1.2.1] - 2026-11-08
+
+> 主题：**镜像跟随上游 3.4.0**。上游把 `security` / `clearance` 从「人工填」改成「写入时自动
+> 判定」，并新增 `memory_access_suggest`；镜像内容因此必须重建 —— 不重建的话自动分级与
+> 审计工具在容器里不存在，云端仍会按旧行为把新写入落成 `internal / reader`。
+
+### Changed
+
+- `template` 子模块指针提到 `v3.4.0`（`d5c246d`）；`compose.yaml` 的 `ai-memory:` tag 由
+  `3.3.1` → `3.4.0`（web 镜像不变，仍 `1.13.0`）。
+- 设备侧（lyw-nas / 192.168.10.2）已按同一构建方式重建并切换：`localhost/dpkg-ai-memory:3.4.0-20261108`，
+  Quadlet `dpkg-ai-memory.container` 的 `Image=` 同步更新（旧定义备份为 `.bak-20261108`）。
+
+### Notes
+
+- 自动判定**默认不写盘**：`memory_access_suggest()` 不带参数只预览；`apply=True` 才收紧。
+- 上游本轮把规则收敛了两轮（文档示例 `token=…`、代码片段 `token = localStorage.getItem(...)`、
+  IMEI 脱敏记录都曾被误判），镜像必须带上最终版，否则审计清单会长出一堆假阳性。
+
 ## [1.2.0] - 2026-11-05
 
 > 主题：**FNS 同步事件可见**。控制台新增「日志」页，右栏要显示「什么时候上传 / 修改 / 下载了哪条笔记」，
