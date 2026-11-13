@@ -36,6 +36,12 @@ services:
 
     environment:
       AI_MEMORY_DIR: /vault
+      # 写入端目录归类：off / warn / auto / strict，代码默认 warn（只提示、不落盘）。
+      # 容器化之后客户端只剩一个 HTTP 端点 ⇒ 客户端侧的 env 到不了容器进程，
+      # 于是这条一度回落默认 warn：新建条目全落库根，只回一句「建议归类」。
+      # 2026-11-11 起在此显式设 auto，让「自动目录」在部署侧成立（不依赖各客户端自律）。
+      # 只作用于**新建**条目；已存在标题的更新绝不搬运（存量需一次性手工归位）。
+      AI_MEMORY_DIR_POLICY: auto
       # 索引 db + 指标 json 的落点。不设则回落到源码目录（即镜像层 /app），
       # 容器一重建就没了 —— 索引能重建，指标趋势不能。
       AI_MEMORY_STATE_DIR: /state
