@@ -114,3 +114,38 @@ jobs:
 
           echo "release title = $TITLE"
           gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES" --verify-tag
+
+      # ── 正文同步（2026-11-19）────────────────────────────────────────────
+      # 背景：本机 gh keyring 里的 token 失效，`gh release edit` 一律 401，而
+      # device flow 的授权需要人去浏览器点（多次超时）。CI 自带 `github.token`
+      # 且本 workflow 已有 `contents: write`，于是把「改正文」这件事交给 CI。
+      #
+      # 触发时机：master 有推送时（含上面刚 create 完的分支）把仓库内
+      # `.github/release-notes/<最新 tag>.md` 同步到该 tag 的远端 Release 正文。
+      # 幂等：正文相同就不写；仓库里没有对应 notes 就跳过，不改自动生成正文。
+      # ⇒ 仓库内 release-notes 是唯一事实源；人工在 GitHub 网页改的正文会被
+      #   下次 push 覆盖（这是有意的：避免两处维护漂移）。
+      - name: Sync release body from repo notes
+        if: steps.target.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.target.outputs.tag }}
+        run: |
+          set -euo pipefail
+          NOTES=".github/release-notes/${TAG}.md"
+          if [ ! -s "$NOTES" ]; then
+            echo "无 ${NOTES}，跳过正文同步（保留 Release 现有正文）。"
+            exit 0
+          fi
+          # 与 Create release 一致：剥掉首行 H1，标题由 tag 注释提供。
+          sed '1{/^#[[:space:]]/d}' "$NOTES" > /tmp/body.md
+          if [ ! -s /tmp/body.md ]; then
+            printf '本版无功能变更。\n' > /tmp/body.md
+          fi
+          CURRENT="$(gh release view "$TAG" --json body --jq '.body // ""' 2>/dev/null || true)"
+          if [ "$CURRENT" = "$(cat /tmp/body.md)" ]; then
+            echo "$TAG 正文已是最新，无需改动。"
+            exit 0
+          fi
+          gh release edit "$TAG" --notes-file /tmp/body.md
+          echo "已用 ${NOTES} 同步 $TAG 的 Release 正文。"
